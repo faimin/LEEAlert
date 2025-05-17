@@ -1199,9 +1199,55 @@ typedef NS_ENUM(NSInteger, LEEBackgroundStyle) {
 
 @end
 
+@interface _LEELayoutView_ : UIView
+@property (nonatomic, strong) NSMutableArray<dispatch_block_t> *callbacks;
+@property (nonatomic, assign) CGSize preSize;
+- (void)setLayoutCallback:(dispatch_block_t)layoutCallback;
+@end
+@implementation _LEELayoutView_
+- (instancetype)initWithFrame:(CGRect)frame {
+    self = [super initWithFrame:frame];
+    if (self) {
+        _callbacks = [[NSMutableArray alloc] initWithCapacity:1];
+        _preSize = CGSizeZero;
+        // 只参与布局，不参与交互和渲染
+        self.userInteractionEnabled = NO;
+        self.hidden = YES;
+    }
+    return self;
+}
+- (void)setLayoutCallback:(dispatch_block_t)layoutCallback {
+    if (!layoutCallback) {
+        return;
+    }
+    [self.callbacks addObject:layoutCallback];
+}
+- (void)didMoveToSuperview {
+    [super didMoveToSuperview];
+    if (!self.superview) {
+        return;
+    }
+    self.frame = self.superview.bounds;
+    self.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
+}
+- (void)layoutSubviews {
+    [super layoutSubviews];
+    CGSize newSize = self.frame.size;
+    if (CGSizeEqualToSize(self.preSize, newSize)) {
+        return;
+    }
+    self.preSize = newSize;
+    for (dispatch_block_t callback in self.callbacks) {
+        callback();
+    }
+}
+@end
+
 @interface UIView (LEEAlertExtension)
 
 @property (nonatomic, assign) CornerRadii lee_alert_cornerRadii;
+
+@property (nonatomic, strong) _LEELayoutView_ *lee__layoutView;
 
 @end
 
@@ -1362,6 +1408,40 @@ CGPathRef _Nullable LEECGPathCreateWithRoundedRect(CGRect bounds, CornerRadii co
     NSValue *value = [NSValue valueWithBytes:&cornerRadii objCType:@encode(CornerRadii)];
     
     objc_setAssociatedObject(self, @selector(lee_alert_cornerRadii), value, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    
+    
+}
+
+- (void)lee_onLayout:(void(^)(UIView *))onCallback {
+    if (!onCallback) {
+        return;
+    }
+    __weak typeof(self) weakTarget = self;
+    self.lee_layoutView.layoutCallback = ^{
+        __strong typeof(weakTarget) self = weakTarget;
+        onCallback(self);
+    };
+}
+
+- (_LEELayoutView_ *)lee_inner__layoutView {
+    return objc_getAssociatedObject(self, @selector(lee__layoutView));
+}
+
+- (void)setLee__layoutView:(_LEELayoutView_ *)lee__layoutView {
+    objc_setAssociatedObject(self, @selector(lee__layoutView), lee__layoutView, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+}
+
+- (_LEELayoutView_ *)lee_layoutView {
+    _LEELayoutView_ *view = self.lee_inner__layoutView;
+    if (!view) {
+        view = [[_LEELayoutView_ alloc] init];
+        self.lee__layoutView = view;
+    }
+    if (view && view.superview != self) {
+        [self addSubview:view];
+        [self sendSubviewToBack:view];
+    }
+    return view;
 }
 
 @end
